@@ -1,115 +1,70 @@
-// src/services/api.js
-import axios from 'axios';
+const express = require('express');
+const cors    = require('cors');
+const path    = require('path');
+require('dotenv').config();
 
-const BASE_URL = 'https://backend-production-2df7.up.railway.app/api'; // ✅
-const api = axios.create({
-  baseURL: BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
-  withCredentials: false,
+const app = express();
+const { verifyToken } = require('./middleware/auth'); // ← ADD THIS LINE
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'https://frontend-mwv9.vercel.app',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ── Static uploads ────────────────────────────────────────────────────────────
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+app.use('/api/patients',     verifyToken, require('./routes/patientRoutes'));     // ← protected
+app.use('/api/doctors',      verifyToken, require('./routes/doctorRoutes'));      // ← protected
+app.use('/api/appointments', verifyToken, require('./routes/appointmentRoutes')); // ← protected
+app.use('/api/clinic',       verifyToken, require('./routes/clinicRoutes'));      // ← protected
+app.use('/api/employees',    require('./routes/employeeRoutes'));  // ← NOT protected here (login is inside)
+app.use('/api/categories',   verifyToken, require('./routes/categoryRoutes'));    // ← protected
+app.use('/api/helpdesk',     verifyToken, require('./routes/helpdeskRoutes'));    // ← protected
+
+// ── Health check ──────────────────────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({
+    message: '✅ QMS Backend API is running!',
+    version: '2.0.0',
+    auth: 'JWT',
+    endpoints: {
+      patients:     '/api/patients',
+      doctors:      '/api/doctors',
+      appointments: '/api/appointments',
+      clinic:       '/api/clinic',
+      employees:    '/api/employees',
+      categories:   '/api/categories',
+      helpdesk:     '/api/helpdesk',
+      login:        '/api/employees/login'
+    }
+  });
 });
 
-// ─── Response interceptor ─────────────────────────────────────────────────────
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error('API Error:', error?.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+// ── 404 ───────────────────────────────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: `Route ${req.url} not found` });
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DASHBOARD  →  /api/dashboard
-// ─────────────────────────────────────────────────────────────────────────────
-export const dashboardAPI = {
-  getStats:              () => api.get('/dashboard/stats'),
-  getAppointmentsChart:  () => api.get('/dashboard/appointments-chart'),
-  getRecentAppointments: () => api.get('/dashboard/recent-appointments'),
-};
+// ── Global error handler ──────────────────────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err.stack);
+  res.status(500).json({ success: false, message: 'Internal server error', error: err.message });
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATIENTS  →  /api/patients
-// ─────────────────────────────────────────────────────────────────────────────
-export const patientAPI = {
-  getAll:      ()       => api.get('/patients'),
-  getById:     (id)     => api.get(`/patients/${id}`),
-  getByRegNo:  (regNo)  => api.get(`/patients/reg/${regNo}`),
-  create:      (data)   => api.post('/patients', data),
-  update:      (id, d)  => api.put(`/patients/${id}`, d),
-  delete:      (id)     => api.delete(`/patients/${id}`),
-  checkMobile: (mobile) => api.get(`/patients/check/mobile/${mobile}`),
-  checkName:   (name)   => api.get(`/patients/check/name/${encodeURIComponent(name)}`),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTORS  →  /api/doctors
-// ─────────────────────────────────────────────────────────────────────────────
-export const doctorAPI = {
-  getAll:       ()                           => api.get('/doctors'),
-  getById:      (id)                         => api.get(`/doctors/${id}`),
-  getByCategory:(categoryId)                 => api.get(`/doctors/category/${categoryId}`),
-
-  // ── NEW: fetch doctors filtered by both clinic and department ──────────────
-  getByClinicAndCategory: (clinicId, categoryId) =>
-    api.get(`/doctors/byclinic/${clinicId}/category/${categoryId}`),
-
-  delete: (id) => api.delete(`/doctors/${id}`),
-
-  // multipart/form-data for photo upload
-  createFormData: (formData) =>
-    api.post('/doctors', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
-
-  updateFormData: (id, formData) =>
-    api.put(`/doctors/${id}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// APPOINTMENTS  →  /api/appointments
-// ─────────────────────────────────────────────────────────────────────────────
-export const appointmentAPI = {
-  getAll:       ()         => api.get('/appointments'),
-  getToday:     ()         => api.get('/appointments/today'),
-  getById:      (id)       => api.get(`/appointments/${id}`),
-  getByTicket:  (ticketNo) => api.get(`/appointments/ticket/${ticketNo}`),
-  create:       (data)     => api.post('/appointments', data),
-  updateStatus: (id, data) => api.put(`/appointments/${id}`, data),
-  update:       (id, data) => api.put(`/appointments/${id}`, data),
-  delete:       (id)       => api.delete(`/appointments/${id}`),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EMPLOYEES  →  /api/employees
-// ─────────────────────────────────────────────────────────────────────────────
-export const employeeAPI = {
-  getAll:  ()         => api.get('/employees'),
-  getById: (id)       => api.get(`/employees/${id}`),
-  login:   (creds)    => api.post('/employees/login', creds),
-  create:  (data)     => api.post('/employees', data),
-  update:  (id, data) => api.put(`/employees/${id}`, data),
-  delete:  (id)       => api.delete(`/employees/${id}`),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CLINIC  →  /api/clinic
-// ─────────────────────────────────────────────────────────────────────────────
-export const clinicAPI = {
-  getDetails:    ()         => api.get('/clinic'),
-  getCategories: ()         => api.get('/clinic/categories'),
-  getServices:   ()         => api.get('/clinic/services'),
-  getCounters:   ()         => api.get('/clinic/counters'),
-  getEmployees:  ()         => api.get('/clinic/employees'),
-  updateDetails: (id, data) => api.put(`/clinic/${id}`, data),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CATEGORIES (DEPARTMENTS)  →  /api/categories          ← NEW
-// ─────────────────────────────────────────────────────────────────────────────
-export const categoryAPI = {
-  getAll:       ()           => api.get('/categories'),
-  getByClinic:  (centerId)   => api.get(`/categories/byclinic/${centerId}`),
-};
-
-export default api;
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
