@@ -1,5 +1,8 @@
 const express = require('express');
 const router  = express.Router();
+
+const { verifyToken, requireRole } = require('../middleware/auth');
+
 const {
   getAllPatients,
   getPatientById,
@@ -11,15 +14,27 @@ const {
   deletePatient
 } = require('../controllers/patientController');
 
-// ⚠️ Specific routes MUST come before /:id
+// ── అన్ని routes కి login అవసరం ──────────────────────────────────────────────
+router.use(verifyToken);
+
+// ── Specific routes — /:id కంటే ముందు ఉండాలి ────────────────────────────────
+
+// Mobile/Name check — Staff + Reception కూడా చేయవచ్చు (Appointment లో కావాలి)
 router.get('/check/mobile/:mobile', checkByMobile);
 router.get('/check/name/:name',     checkByName);
 router.get('/reg/:regNo',           getPatientByRegNo);
 
-router.get('/',       getAllPatients);
-router.get('/:id',    getPatientById);
-router.post('/',      createPatient);
-router.put('/:id',    updatePatient);
-router.delete('/:id', deletePatient);
+// GET — అందరూ చూడవచ్చు
+router.get('/',    getAllPatients);
+router.get('/:id', getPatientById);
+
+// CREATE — Admin + Staff + Reception చేయవచ్చు
+router.post('/', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), createPatient);
+
+// UPDATE — Admin + Staff + Reception చేయవచ్చు
+router.put('/:id', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), updatePatient);
+
+// DELETE — Admin మాత్రమే
+router.delete('/:id', requireRole('Admin'), deletePatient);
 
 module.exports = router;

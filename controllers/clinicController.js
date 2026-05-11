@@ -1,6 +1,10 @@
-const db = require('../config/db');
+const db  = require('../config/db');
+const jwt = require('jsonwebtoken');
 
-// GET clinic/company details — includes COMPANYADDRESS2
+const SECRET  = process.env.JWT_SECRET;
+const EXPIRES = process.env.JWT_EXPIRES_IN || '8h';
+
+// GET clinic/company details
 const getClinicDetails = async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -65,31 +69,59 @@ const getAllEmployees = async (req, res) => {
   }
 };
 
-// Employee login
+// ── Employee Login — JWT token generate చేస్తుంది ──────────────────────────
 const employeeLogin = async (req, res) => {
   try {
     const { EMPID, PWD } = req.body;
+
     const [rows] = await db.query(
-      "SELECT Id, EMPID, EMPNAME, ROLE, CENTERID FROM employees WHERE EMPID = ? AND PWD = ? AND ACTIVE = 'Y'",
+      `SELECT Id, EMPID, EMPNAME, ROLE, CENTERID
+       FROM employees
+       WHERE EMPID = ? AND PWD = ? AND ACTIVE = 'Y'`,
       [EMPID, PWD]
     );
+
     if (rows.length === 0)
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    res.json({ success: true, message: 'Login successful', data: rows[0] });
+
+    const user = rows[0];
+
+    // ADMIN/Admin రెండూ normalize చేయి
+    const normalizedRole = (user.ROLE === 'ADMIN') ? 'Admin' : user.ROLE;
+
+    // JWT token sign చేయి
+    const token = jwt.sign(
+      {
+        id:       user.Id,
+        empId:    user.EMPID,
+        empName:  user.EMPNAME,
+        role:     normalizedRole,
+        centerId: user.CENTERID,
+      },
+      SECRET,
+      { expiresIn: EXPIRES }
+    );
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      data: {
+        ...user,
+        ROLE: normalizedRole,
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// UPDATE clinic details — now includes COMPANYADDRESS2
+// UPDATE clinic details
 const updateClinicDetails = async (req, res) => {
   try {
     const {
-      COMPANYNAME,
-      COMPANYADDRESS,
-      COMPANYADDRESS2,   // ← NEW
-      KIOSKMESSAGE1,
-      KIOSKMESSAGE2,
+      COMPANYNAME, COMPANYADDRESS, COMPANYADDRESS2,
+      KIOSKMESSAGE1, KIOSKMESSAGE2,
     } = req.body;
 
     const [result] = await db.query(
@@ -115,5 +147,5 @@ module.exports = {
   getAllCounters,
   getAllEmployees,
   employeeLogin,
-  updateClinicDetails
+  updateClinicDetails,
 };

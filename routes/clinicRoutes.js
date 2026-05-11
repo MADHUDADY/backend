@@ -2,6 +2,8 @@
 const express = require('express');
 const router  = express.Router();
 
+const { verifyToken, requireRole } = require('../middleware/auth');
+
 const {
   getClinicDetails,
   getAllCategories,
@@ -12,25 +14,28 @@ const {
   updateClinicDetails,
 } = require('../controllers/clinicController');
 
-// ── GET clinic details  →  /api/clinic ───────────────────────────────────────
-router.get('/', getClinicDetails);
-
-// ── GET categories  →  /api/clinic/categories ────────────────────────────────
-router.get('/categories', getAllCategories);
-
-// ── GET services  →  /api/clinic/services ────────────────────────────────────
-router.get('/services', getAllServices);
-
-// ── GET counters  →  /api/clinic/counters ────────────────────────────────────
-router.get('/counters', getAllCounters);
-
-// ── GET employees  →  /api/clinic/employees ──────────────────────────────────
-router.get('/employees', getAllEmployees);
-
-// ── Employee login  →  /api/clinic/login ─────────────────────────────────────
+// ── Login — token అవసరం లేదు (public route) ──────────────────────────────────
 router.post('/login', employeeLogin);
 
-// ── UPDATE clinic  →  /api/clinic/:id ────────────────────────────────────────
-router.put('/:id', updateClinicDetails);
+// ── ఇక్కడ నుండి అన్నీ login అవసరం ───────────────────────────────────────────
+router.use(verifyToken);
+
+// ── GET clinic details — అందరూ చూడవచ్చు ─────────────────────────────────────
+router.get('/', getClinicDetails);
+
+// ── GET categories — అందరూ చూడవచ్చు (Appointment లో కావాలి) ─────────────────
+router.get('/categories', getAllCategories);
+
+// ── GET services — అందరూ చూడవచ్చు ───────────────────────────────────────────
+router.get('/services', getAllServices);
+
+// ── GET counters — అందరూ చూడవచ్చు ───────────────────────────────────────────
+router.get('/counters', getAllCounters);
+
+// ── GET employees — Admin మాత్రమే ────────────────────────────────────────────
+router.get('/employees', requireRole('Admin'), getAllEmployees);
+
+// ── UPDATE clinic — Admin మాత్రమే ────────────────────────────────────────────
+router.put('/:id', requireRole('Admin'), updateClinicDetails);
 
 module.exports = router;

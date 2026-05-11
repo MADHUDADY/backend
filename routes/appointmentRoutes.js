@@ -1,6 +1,10 @@
-const express = require('express');
-const router  = express.Router();
-const db      = require('../config/db');
+const express      = require('express');
+const router       = express.Router();
+const db           = require('../config/db');
+const { verifyToken, requireRole } = require('../middleware/auth');
+
+// ── అన్ని routes కి login అవసరం ──────────────────────────────────────────────
+router.use(verifyToken);
 
 // ── GET all appointments (callhistory) ────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -35,40 +39,24 @@ router.get('/today', async (req, res) => {
   }
 });
 
-// ── SEARCH patient by mobile number ──────────────────────────────────────────
-// GET /api/appointments/search-patient/:mobile
+// ── SEARCH patient by mobile ──────────────────────────────────────────────────
 router.get('/search-patient/:mobile', async (req, res) => {
   try {
     const mobile = req.params.mobile.trim();
-    // patients table లో search చేయి (మీ existing patients table)
     const [rows] = await db.query(
       `SELECT SLNO, PatientName, Mobile, Age, Gender, RegNo, DOB, Address, Email
-       FROM patients
-       WHERE Mobile = ?
+       FROM hispatientdetails
+       WHERE Mobile = ? AND Active = 'Y'
        ORDER BY SLNO DESC`,
       [mobile]
     );
     res.json({ success: true, data: rows, count: rows.length });
   } catch (err) {
-    // patients table లేకపోతే hispatientdetails try చేయి
-    try {
-      const mobile = req.params.mobile.trim();
-      const [rows] = await db.query(
-        `SELECT SLNO, PatientName, RegNo, VisitDate, DoctorName, Department
-         FROM hispatientdetails
-         WHERE PatientName IS NOT NULL
-         ORDER BY SLNO DESC
-         LIMIT 10`
-      );
-      res.json({ success: true, data: rows, count: rows.length });
-    } catch (err2) {
-      res.status(500).json({ success: false, message: err.message });
-    }
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ── GET appointments from new appointments table ───────────────────────────────
-// GET /api/appointments/new-list
+// ── GET new appointments list ─────────────────────────────────────────────────
 router.get('/new-list', async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -79,7 +67,7 @@ router.get('/new-list', async (req, res) => {
        FROM appointments a
        LEFT JOIN doctorservice d   ON a.DoctorId     = d.SERVICEID
        LEFT JOIN category      cat ON a.DepartmentId = cat.CATEGORYID
-       LEFT JOIN patients      p   ON a.PatientId    = p.SLNO
+       LEFT JOIN hispatientdetails p ON a.PatientId  = p.SLNO
        ORDER BY a.SLNO DESC`
     );
     res.json({ success: true, data: rows });
@@ -88,9 +76,8 @@ router.get('/new-list', async (req, res) => {
   }
 });
 
-// ── CREATE appointment (new appointments table) ────────────────────────────────
-// POST /api/appointments/new
-router.post('/new', async (req, res) => {
+// ── CREATE appointment (appointments table) — Admin + Staff + Reception ────────
+router.post('/new', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
   try {
     const {
       ClinicId, DepartmentId, DoctorId, PatientId,
@@ -100,7 +87,6 @@ router.post('/new', async (req, res) => {
     if (!DoctorId)
       return res.status(400).json({ success: false, message: 'DoctorId required' });
 
-    // Step 1: Insert చేయి — SLNO get చేయడానికి
     const [result] = await db.query(
       `INSERT INTO appointments
        (ClinicId, DepartmentId, DoctorId, PatientId,
@@ -108,21 +94,18 @@ router.post('/new', async (req, res) => {
         CreatedBy, CreatedDate)
        VALUES (?, ?, ?, ?, ?, 'N', 'N', ?, NOW())`,
       [
-        ClinicId    || 101,
-        DepartmentId || null,
+        ClinicId         || 101,
+        DepartmentId     || null,
         DoctorId,
-        PatientId   || null,
+        PatientId        || null,
         AppointmentDateTime || new Date(),
-        CreatedBy   || 1,
+        CreatedBy        || 1,
       ]
     );
 
-    const newSlno = result.insertId;
-
-    // Step 2: AppointNumber generate — AP-CLINICID-PATIENTID-SLNO
+    const newSlno       = result.insertId;
     const appointNumber = `AP-${ClinicId || 101}-${PatientId || 0}-${newSlno}`;
 
-    // Step 3: AppointNumber update చేయి
     await db.query(
       'UPDATE appointments SET AppointNumber = ? WHERE SLNO = ?',
       [appointNumber, newSlno]
@@ -131,8 +114,8 @@ router.post('/new', async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Appointment created',
-      id: newSlno,
-      AppointNumber: appointNumber
+      id:      newSlno,
+      AppointNumber: appointNumber,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -167,8 +150,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ── CREATE appointment (callhistory — existing) ───────────────────────────────
-router.post('/', async (req, res) => {
+// ── CREATE callhistory ticket — Admin + Staff + Reception ─────────────────────
+router.post('/', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
   try {
     const {
       TICKETNUMBER, COUNTERID, SERVICEID,
@@ -200,8 +183,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ── UPDATE appointment status ─────────────────────────────────────────────────
-router.put('/:id', async (req, res) => {
+// ── UPDATE appointment status — Admin + Staff + Reception ─────────────────────
+router.put('/:id', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
   try {
     const { STATUSCALLDISPLAYALL, STATUSSCREENDISPLAYALL } = req.body;
     const [result] = await db.query(
@@ -216,8 +199,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// ── DELETE appointment ────────────────────────────────────────────────────────
-router.delete('/:id', async (req, res) => {
+// ── DELETE appointment — Admin + Reception మాత్రమే ───────────────────────────
+router.delete('/:id', requireRole('Admin', 'Reception', 'Call Centre'), async (req, res) => {
   try {
     const [result] = await db.query(
       'DELETE FROM callhistory WHERE SLNO=?',

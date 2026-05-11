@@ -1,8 +1,42 @@
+// const jwt = require('jsonwebtoken');
+
+// const verifyToken = (req, res, next) => {
+//   const authHeader = req.headers['authorization'];
+//   const token = authHeader && authHeader.split(' ')[1]; // "Bearer <token>"
+
+//   if (!token) {
+//     return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
+//   }
+
+//   try {
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     req.user = decoded; // { empId, empName, role, centerId }
+//     next();
+//   } catch (err) {
+//     if (err.name === 'TokenExpiredError') {
+//       return res.status(401).json({ success: false, message: 'Token expired. Please login again.' });
+//     }
+//     return res.status(403).json({ success: false, message: 'Invalid token.' });
+//   }
+// };
+
+// // Role-based access: requireRole("Admin") or requireRole("Admin","Doctor")
+// const requireRole = (...roles) => (req, res, next) => {
+//   if (!roles.includes(req.user?.role)) {
+//     return res.status(403).json({
+//       success: false,
+//       message: `Access denied. Required: ${roles.join(' or ')}`
+//     });
+//   }
+//   next();
+// };
+
+// module.exports = { verifyToken, requireRole };
 const jwt = require('jsonwebtoken');
 
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // "Bearer <token>"
+  const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
     return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
@@ -10,7 +44,7 @@ const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { empId, empName, role, centerId }
+    req.user = decoded;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -20,9 +54,14 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// Role-based access: requireRole("Admin") or requireRole("Admin","Doctor")
+// ── Role check — ADMIN/Admin రెండూ handle అవుతాయి ──
 const requireRole = (...roles) => (req, res, next) => {
-  if (!roles.includes(req.user?.role)) {
+  const userRole = req.user?.role || req.user?.ROLE || "";
+
+  // Admin / ADMIN కి always full access
+  if (userRole === 'Admin' || userRole === 'ADMIN') return next();
+
+  if (!roles.includes(userRole)) {
     return res.status(403).json({
       success: false,
       message: `Access denied. Required: ${roles.join(' or ')}`

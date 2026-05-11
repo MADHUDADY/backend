@@ -6,6 +6,8 @@ const path    = require('path');
 const fs      = require('fs');
 const db      = require('../config/db');
 
+const { verifyToken, requireRole } = require('../middleware/auth');
+
 const {
   getAllDoctors,
   getDoctorById,
@@ -53,11 +55,12 @@ const handleUpload = (req, res, next) => {
   });
 };
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-// ⚠️ ORDER IMPORTANT: specific routes before /:id
+// ── అన్ని routes కి login అవసరం ──────────────────────────────────────────────
+router.use(verifyToken);
 
-// ✅ License number unique check
-// GET /api/doctors/check-license/DHA-P-12345
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+// License check — Admin + Staff + Reception చూడవచ్చు
 router.get('/check-license/:licenseNo', async (req, res) => {
   try {
     const licenseNo = decodeURIComponent(req.params.licenseNo).trim();
@@ -82,12 +85,15 @@ router.get('/check-license/:licenseNo', async (req, res) => {
   }
 });
 
-router.get('/category/:categoryId',                     getDoctorsByCategory);
-router.get('/byclinic/:clinicId/category/:categoryId',  getDoctorsByClinicAndCategory);
-router.get('/',                                         getAllDoctors);
-router.get('/:id',                                      getDoctorById);
-router.post('/',       handleUpload,                    createDoctor);
-router.put('/:id',     handleUpload,                    updateDoctor);
-router.delete('/:id',                                   deleteDoctor);
+// GET routes — అందరూ చూడవచ్చు (Appointment లో doctor select కోసం)
+router.get('/category/:categoryId',                    getDoctorsByCategory);
+router.get('/byclinic/:clinicId/category/:categoryId', getDoctorsByClinicAndCategory);
+router.get('/',                                        getAllDoctors);
+router.get('/:id',                                     getDoctorById);
+
+// POST, PUT, DELETE — Admin మాత్రమే
+router.post('/',   requireRole('Admin'), handleUpload, createDoctor);
+router.put('/:id', requireRole('Admin'), handleUpload, updateDoctor);
+router.delete('/:id', requireRole('Admin'),            deleteDoctor);
 
 module.exports = router;
