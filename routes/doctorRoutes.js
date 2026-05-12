@@ -1,4 +1,3 @@
-// backend/routes/doctorRoutes.js
 const express = require('express');
 const router  = express.Router();
 const multer  = require('multer');
@@ -55,12 +54,20 @@ const handleUpload = (req, res, next) => {
   });
 };
 
-// ── అన్ని routes కి login అవసరం ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+//  PUBLIC ROUTES — No JWT (Kiosk use chestundi)
+// ══════════════════════════════════════════════════════════════════════════════
+router.get('/category/:categoryId',                    getDoctorsByCategory);
+router.get('/byclinic/:clinicId/category/:categoryId', getDoctorsByClinicAndCategory);
+router.get('/',                                        getAllDoctors);
+router.get('/:id',                                     getDoctorById);
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PROTECTED ROUTES — JWT required from here
+// ══════════════════════════════════════════════════════════════════════════════
 router.use(verifyToken);
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-
-// License check — Admin + Staff + Reception చూడవచ్చు
+// License check
 router.get('/check-license/:licenseNo', async (req, res) => {
   try {
     const licenseNo = decodeURIComponent(req.params.licenseNo).trim();
@@ -72,11 +79,8 @@ router.get('/check-license/:licenseNo', async (req, res) => {
       [licenseNo]
     );
     if (rows.length > 0) {
-      res.json({
-        exists:  true,
-        doctor:  rows[0],
-        message: `License already registered — ${rows[0].SERVICE_E} (Clinic: ${rows[0].COMPANYNAME || rows[0].CLINICID})`,
-      });
+      res.json({ exists: true, doctor: rows[0],
+        message: `License already registered — ${rows[0].SERVICE_E}` });
     } else {
       res.json({ exists: false });
     }
@@ -85,15 +89,9 @@ router.get('/check-license/:licenseNo', async (req, res) => {
   }
 });
 
-// GET routes — అందరూ చూడవచ్చు (Appointment లో doctor select కోసం)
-router.get('/category/:categoryId',                    getDoctorsByCategory);
-router.get('/byclinic/:clinicId/category/:categoryId', getDoctorsByClinicAndCategory);
-router.get('/',                                        getAllDoctors);
-router.get('/:id',                                     getDoctorById);
-
-// POST, PUT, DELETE — Admin మాత్రమే
-router.post('/',   requireRole('Admin'), handleUpload, createDoctor);
-router.put('/:id', requireRole('Admin'), handleUpload, updateDoctor);
-router.delete('/:id', requireRole('Admin'),            deleteDoctor);
+// POST, PUT, DELETE — Admin only
+router.post('/',      requireRole('Admin'), handleUpload, createDoctor);
+router.put('/:id',    requireRole('Admin'), handleUpload, updateDoctor);
+router.delete('/:id', requireRole('Admin'),               deleteDoctor);
 
 module.exports = router;
