@@ -7,16 +7,28 @@ const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://127.0.0.1:5173',
-    'https://frontend-mwv9.vercel.app',
-  ],
+  origin: function (origin, callback) {
+    // Allow: no origin (mobile apps, curl, Postman), localhost, and production
+    const allowed = [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'https://frontend-mwv9.vercel.app',
+    ];
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS blocked: ' + origin));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false
+  credentials: false,
 }));
+
+// ── Preflight — OPTIONS request ki instant 200 return cheyyi ─────────────────
+app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -31,7 +43,7 @@ app.use('/api/appointments', require('./routes/appointmentRoutes'));
 app.use('/api/clinic',       require('./routes/clinicRoutes'));
 app.use('/api/employees',    require('./routes/employeeRoutes'));
 app.use('/api/categories',   require('./routes/categoryRoutes'));
-app.use('/api/helpdesk',     require('./routes/helpdeskRoutes'));   // ← NEW
+app.use('/api/helpdesk',     require('./routes/helpdeskRoutes'));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -45,7 +57,7 @@ app.get('/', (req, res) => {
       clinic:       '/api/clinic',
       employees:    '/api/employees',
       categories:   '/api/categories',
-      helpdesk:     '/api/helpdesk',                               // ← NEW
+      helpdesk:     '/api/helpdesk',
       login:        '/api/employees/login'
     }
   });
