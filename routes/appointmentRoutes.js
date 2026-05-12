@@ -1,12 +1,74 @@
-const express      = require('express');
-const router       = express.Router();
-const db           = require('../config/db');
+const express = require('express');
+const router  = express.Router();
+const db      = require('../config/db');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
-// ── అన్ని routes కి login అవసరం ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+//  PUBLIC ROUTES — No JWT needed (Kiosk page use chestundi)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── SEARCH patient by mobile — PUBLIC ────────────────────────────────────────
+router.get('/search-patient/:mobile', async (req, res) => {
+  try {
+    const mobile = req.params.mobile.trim();
+    const [rows] = await db.query(
+      `SELECT SLNO, PatientName, Mobile, Age, Gender, RegNo, DOB, Address, Email
+       FROM hispatientdetails
+       WHERE Mobile = ? AND Active = 'Y'
+       ORDER BY SLNO DESC`,
+      [mobile]
+    );
+    res.json({ success: true, data: rows, count: rows.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── CREATE callhistory token — PUBLIC (Kiosk walk-in + appointment confirm) ──
+router.post('/', async (req, res) => {
+  try {
+    const {
+      TICKETNUMBER, COUNTERID, SERVICEID,
+      ZONE, TYPE, CENTERID, PATIENTNAME, PHONE
+    } = req.body;
+
+    if (!TICKETNUMBER)
+      return res.status(400).json({ success: false, message: 'TICKETNUMBER required' });
+
+    const [result] = await db.query(
+      `INSERT INTO callhistory
+       (TICKETNUMBER, COUNTERID, TOKENDATE, SERVICEID,
+        STATUSSCREENDISPLAYALL, STATUSCALLDISPLAYALL,
+        STATUSSCREENDISPLAYBYID, STATUSCALLDISPLAYBYID,
+        ZONE, TYPE, CENTERID, PATIENTNAME, PHONE)
+       VALUES (?, ?, NOW(), ?, 1, 0, 1, 0, ?, ?, ?, ?, ?)`,
+      [
+        TICKETNUMBER,
+        COUNTERID   || '1',
+        SERVICEID   || 1,
+        ZONE        || '1',
+        TYPE        || 'D',
+        CENTERID    || '101',
+        PATIENTNAME || null,
+        PHONE       || null,
+      ]
+    );
+    res.status(201).json({
+      success: true,
+      message: 'Token created',
+      id:      result.insertId,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PROTECTED ROUTES — JWT required from here
+// ══════════════════════════════════════════════════════════════════════════════
 router.use(verifyToken);
 
-// ── GET all appointments (callhistory) ────────────────────────────────────────
+// ── GET all appointments ──────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -39,23 +101,6 @@ router.get('/today', async (req, res) => {
   }
 });
 
-// ── SEARCH patient by mobile ──────────────────────────────────────────────────
-router.get('/search-patient/:mobile', async (req, res) => {
-  try {
-    const mobile = req.params.mobile.trim();
-    const [rows] = await db.query(
-      `SELECT SLNO, PatientName, Mobile, Age, Gender, RegNo, DOB, Address, Email
-       FROM hispatientdetails
-       WHERE Mobile = ? AND Active = 'Y'
-       ORDER BY SLNO DESC`,
-      [mobile]
-    );
-    res.json({ success: true, data: rows, count: rows.length });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
 // ── GET new appointments list ─────────────────────────────────────────────────
 router.get('/new-list', async (req, res) => {
   try {
@@ -65,58 +110,12 @@ router.get('/new-list', async (req, res) => {
               cat.CATEGORYE AS DepartmentName,
               p.PatientName, p.Mobile
        FROM appointments a
-       LEFT JOIN doctorservice d   ON a.DoctorId     = d.SERVICEID
-       LEFT JOIN category      cat ON a.DepartmentId = cat.CATEGORYID
-       LEFT JOIN hispatientdetails p ON a.PatientId  = p.SLNO
+       LEFT JOIN doctorservice d     ON a.DoctorId     = d.SERVICEID
+       LEFT JOIN category      cat   ON a.DepartmentId = cat.CATEGORYID
+       LEFT JOIN hispatientdetails p ON a.PatientId    = p.SLNO
        ORDER BY a.SLNO DESC`
     );
     res.json({ success: true, data: rows });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ── CREATE appointment (appointments table) — Admin + Staff + Reception ────────
-router.post('/new', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
-  try {
-    const {
-      ClinicId, DepartmentId, DoctorId, PatientId,
-      AppointmentDateTime, CreatedBy
-    } = req.body;
-
-    if (!DoctorId)
-      return res.status(400).json({ success: false, message: 'DoctorId required' });
-
-    const [result] = await db.query(
-      `INSERT INTO appointments
-       (ClinicId, DepartmentId, DoctorId, PatientId,
-        AppointmentDateTime, isCancel, isVisited,
-        CreatedBy, CreatedDate)
-       VALUES (?, ?, ?, ?, ?, 'N', 'N', ?, NOW())`,
-      [
-        ClinicId         || 101,
-        DepartmentId     || null,
-        DoctorId,
-        PatientId        || null,
-        AppointmentDateTime || new Date(),
-        CreatedBy        || 1,
-      ]
-    );
-
-    const newSlno       = result.insertId;
-    const appointNumber = `AP-${ClinicId || 101}-${PatientId || 0}-${newSlno}`;
-
-    await db.query(
-      'UPDATE appointments SET AppointNumber = ? WHERE SLNO = ?',
-      [appointNumber, newSlno]
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Appointment created',
-      id:      newSlno,
-      AppointNumber: appointNumber,
-    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -150,46 +149,39 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ── CREATE callhistory ticket — Admin + Staff + Reception ─────────────────────
-router.post('/', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
+// ── CREATE appointment record (appointments table) ────────────────────────────
+router.post('/new', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
   try {
-    const {
-      TICKETNUMBER, COUNTERID, SERVICEID,
-      ZONE, TYPE, CENTERID, PATIENTNAME, PHONE
-    } = req.body;
+    const { ClinicId, DepartmentId, DoctorId, PatientId, AppointmentDateTime, CreatedBy } = req.body;
 
-    if (!TICKETNUMBER)
-      return res.status(400).json({ success: false, message: 'TICKETNUMBER required' });
+    if (!DoctorId)
+      return res.status(400).json({ success: false, message: 'DoctorId required' });
 
     const [result] = await db.query(
-      `INSERT INTO callhistory
-       (TICKETNUMBER, COUNTERID, TOKENDATE, SERVICEID,
-        STATUSSCREENDISPLAYALL, STATUSCALLDISPLAYALL,
-        STATUSSCREENDISPLAYBYID, STATUSCALLDISPLAYBYID,
-        ZONE, TYPE, CENTERID)
-       VALUES (?, ?, NOW(), ?, 1, 0, 1, 0, ?, ?, ?)`,
-      [
-        TICKETNUMBER,
-        COUNTERID || '1',
-        SERVICEID || 1,
-        ZONE      || '1',
-        TYPE      || 'D',
-        CENTERID  || '101',
-      ]
+      `INSERT INTO appointments
+       (ClinicId, DepartmentId, DoctorId, PatientId,
+        AppointmentDateTime, isCancel, isVisited, CreatedBy, CreatedDate)
+       VALUES (?, ?, ?, ?, ?, 'N', 'N', ?, NOW())`,
+      [ClinicId||101, DepartmentId||null, DoctorId, PatientId||null, AppointmentDateTime||new Date(), CreatedBy||1]
     );
-    res.status(201).json({ success: true, message: 'Appointment created', id: result.insertId });
+
+    const newSlno       = result.insertId;
+    const appointNumber = `AP-${ClinicId||101}-${PatientId||0}-${newSlno}`;
+    await db.query('UPDATE appointments SET AppointNumber = ? WHERE SLNO = ?', [appointNumber, newSlno]);
+
+    res.status(201).json({ success:true, message:'Appointment created', id:newSlno, AppointNumber:appointNumber });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ── UPDATE appointment status — Admin + Staff + Reception ─────────────────────
+// ── UPDATE appointment status ─────────────────────────────────────────────────
 router.put('/:id', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), async (req, res) => {
   try {
     const { STATUSCALLDISPLAYALL, STATUSSCREENDISPLAYALL } = req.body;
     const [result] = await db.query(
       `UPDATE callhistory SET STATUSCALLDISPLAYALL=?, STATUSSCREENDISPLAYALL=? WHERE SLNO=?`,
-      [STATUSCALLDISPLAYALL ?? 1, STATUSSCREENDISPLAYALL ?? 1, req.params.id]
+      [STATUSCALLDISPLAYALL??1, STATUSSCREENDISPLAYALL??1, req.params.id]
     );
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Appointment not found' });
@@ -199,13 +191,10 @@ router.put('/:id', requireRole('Admin', 'Staff', 'Reception', 'Call Centre'), as
   }
 });
 
-// ── DELETE appointment — Admin + Reception మాత్రమే ───────────────────────────
+// ── DELETE appointment ────────────────────────────────────────────────────────
 router.delete('/:id', requireRole('Admin', 'Reception', 'Call Centre'), async (req, res) => {
   try {
-    const [result] = await db.query(
-      'DELETE FROM callhistory WHERE SLNO=?',
-      [req.params.id]
-    );
+    const [result] = await db.query('DELETE FROM callhistory WHERE SLNO=?', [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Appointment not found' });
     res.json({ success: true, message: 'Appointment deleted' });
