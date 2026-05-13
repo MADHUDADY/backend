@@ -10,16 +10,10 @@ const {
 
 // ── Public ────────────────────────────────────────────────────────────────────
 router.post('/login', employeeLogin);
-
-// ── GET clinic — PUBLIC (Kiosk needs TICKET_MODE) ────────────────────────────
-router.get('/', getClinicDetails);
-
-// ── GET ticket config — PUBLIC (Kiosk use chestundi) ─────────────────────────
-router.get('/ticket-config', async (req, res) => {
+router.get('/',               getClinicDetails);
+router.get('/ticket-config',  async (req, res) => {
   try {
-    const [rows] = await db.query(
-      'SELECT TICKET_MODE FROM companydetails LIMIT 1'
-    );
+    const [rows] = await db.query('SELECT TICKET_MODE FROM companydetails LIMIT 1');
     res.json({ success: true, mode: rows[0]?.TICKET_MODE || 'print' });
   } catch (err) {
     res.json({ success: true, mode: 'print' });
@@ -34,10 +28,7 @@ router.get('/services',   getAllServices);
 router.get('/counters',   getAllCounters);
 router.get('/employees',  requireRole('Admin'), getAllEmployees);
 
-// ── UPDATE clinic + TICKET_MODE — Admin only ──────────────────────────────────
-router.put('/:id', requireRole('Admin'), updateClinicDetails);
-
-// ── UPDATE ticket config — Admin only ────────────────────────────────────────
+// ✅ ticket-config/save MUST be before /:id
 router.put('/ticket-config/save', requireRole('Admin'), async (req, res) => {
   try {
     const { mode } = req.body;
@@ -49,5 +40,8 @@ router.put('/ticket-config/save', requireRole('Admin'), async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// /:id after specific routes
+router.put('/:id', requireRole('Admin'), updateClinicDetails);
 
 module.exports = router;
