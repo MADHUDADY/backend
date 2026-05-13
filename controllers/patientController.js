@@ -1,6 +1,5 @@
 const db = require('../config/db');
 
-// ── GET all patients ──────────────────────────────────────────────────────────
 const getAllPatients = async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -12,7 +11,6 @@ const getAllPatients = async (req, res) => {
   }
 };
 
-// ── GET patient by ID ─────────────────────────────────────────────────────────
 const getPatientById = async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -26,7 +24,6 @@ const getPatientById = async (req, res) => {
   }
 };
 
-// ── GET patient by RegNo ──────────────────────────────────────────────────────
 const getPatientByRegNo = async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -39,7 +36,6 @@ const getPatientByRegNo = async (req, res) => {
   }
 };
 
-// ── CHECK duplicate by Mobile ─────────────────────────────────────────────────
 const checkByMobile = async (req, res) => {
   try {
     const { mobile } = req.params;
@@ -55,7 +51,6 @@ const checkByMobile = async (req, res) => {
   }
 };
 
-// ── CHECK duplicate by Name ───────────────────────────────────────────────────
 const checkByName = async (req, res) => {
   try {
     const { name } = req.params;
@@ -71,7 +66,7 @@ const checkByName = async (req, res) => {
   }
 };
 
-// ── CREATE patient ────────────────────────────────────────────────────────────
+// ── CREATE patient — duplicate unte existing return cheyyi ────────────────────
 const createPatient = async (req, res) => {
   try {
     const {
@@ -84,15 +79,20 @@ const createPatient = async (req, res) => {
     if (!Mobile)
       return res.status(400).json({ success: false, message: 'Mobile is required' });
 
-    // Prevent duplicate by Mobile
+    // ✅ Duplicate check — existing patient unte return cheyyi (409 kadu!)
     const [existing] = await db.query(
-      "SELECT SLNO FROM hispatientdetails WHERE Mobile = ? AND Active = 'Y' LIMIT 1",
+      "SELECT SLNO, PatientName, Mobile, Gender, Age FROM hispatientdetails WHERE Mobile = ? AND Active = 'Y' LIMIT 1",
       [Mobile]
     );
     if (existing.length > 0)
-      return res.status(409).json({ success: false, message: 'Patient with this mobile already exists' });
+      return res.status(200).json({
+        success:  true,
+        message:  'Patient already exists',
+        id:       existing[0].SLNO,
+        data:     existing[0],
+        existing: true,
+      });
 
-    // Auto-set VisitDate to today if not provided
     const visitDate = VisitDate || new Date().toISOString().slice(0, 10);
 
     const [result] = await db.query(
@@ -101,52 +101,26 @@ const createPatient = async (req, res) => {
         RegNo, VisitDate, ClinicId, ClinicName, TicketNumber, TicketTime, Active)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'Y')`,
       [
-        PatientName,
-        Age          || null,
-        DOB          || null,
-        Gender       || '',
-        Mobile,
-        Address      || '',
-        Email        || '',
-        RegNo        || '',
-        visitDate,
-        ClinicId     || '101',
-        ClinicName   || '',
-        TicketNumber || ''
+        PatientName, Age||null, DOB||null, Gender||'', Mobile,
+        Address||'', Email||'', RegNo||'', visitDate,
+        ClinicId||'101', ClinicName||'', TicketNumber||''
       ]
     );
-    res.status(201).json({ success: true, message: 'Patient created', id: result.insertId });
+    res.status(201).json({ success: true, message: 'Patient created', id: result.insertId, existing: false });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ── UPDATE patient ────────────────────────────────────────────────────────────
 const updatePatient = async (req, res) => {
   try {
-    const {
-      PatientName, Age, DOB, Gender, Mobile, Address, Email, RegNo, VisitDate
-    } = req.body;
-
-    // Auto-set VisitDate to today if not provided
+    const { PatientName, Age, DOB, Gender, Mobile, Address, Email, RegNo, VisitDate } = req.body;
     const visitDate = VisitDate || new Date().toISOString().slice(0, 10);
-
     const [result] = await db.query(
       `UPDATE hispatientdetails
        SET PatientName=?, Age=?, DOB=?, Gender=?, Mobile=?, Address=?, Email=?, RegNo=?, VisitDate=?
        WHERE SLNO=?`,
-      [
-        PatientName,
-        Age  || null,
-        DOB  || null,
-        Gender,
-        Mobile,
-        Address,
-        Email,
-        RegNo,
-        visitDate,
-        req.params.id
-      ]
+      [PatientName, Age||null, DOB||null, Gender, Mobile, Address, Email, RegNo, visitDate, req.params.id]
     );
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Patient not found' });
@@ -156,7 +130,6 @@ const updatePatient = async (req, res) => {
   }
 };
 
-// ── DELETE patient (soft) ─────────────────────────────────────────────────────
 const deletePatient = async (req, res) => {
   try {
     const [result] = await db.query(
@@ -171,12 +144,6 @@ const deletePatient = async (req, res) => {
 };
 
 module.exports = {
-  getAllPatients,
-  getPatientById,
-  getPatientByRegNo,
-  checkByMobile,
-  checkByName,
-  createPatient,
-  updatePatient,
-  deletePatient
+  getAllPatients, getPatientById, getPatientByRegNo,
+  checkByMobile, checkByName, createPatient, updatePatient, deletePatient
 };
